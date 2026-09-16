@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Cradle Mobile</title>
+<style>body{font-family:system-ui;margin:0;background:#f6f8fb;color:#172033}.wrap{max-width:650px;margin:auto;padding:18px}.card{background:#fff;border:1px solid #e4e8ef;border-radius:14px;padding:18px;margin:12px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.v{font-size:24px;font-weight:750}.l{font-size:11px;color:#718096;text-transform:uppercase}.status{display:inline-block;padding:8px 11px;border-radius:20px;background:#eef2f7;font-weight:700}.ok{background:#eaf8ef;color:#16803d}.warn{background:#fff4e8;color:#b45309}.danger{background:#feecec;color:#b91c1c}</style></head>
+<body><div class="wrap"><h2>Smart Cradle</h2><div id="state" class="card">Loading secure shared view…</div><div class="grid">
+<div class="card"><div class="l">Height / Length</div><div class="v" id="height">—</div></div><div class="card"><div class="l">Weight</div><div class="v" id="weight">—</div></div>
+<div class="card"><div class="l">Temperature</div><div class="v" id="temp">—</div></div><div class="card"><div class="l">Respiratory Rate</div><div class="v" id="rr">—</div></div>
+<div class="card"><div class="l">Cry</div><div id="cry" class="status">—</div><p id="pattern">Pattern: —</p></div><div class="card"><div class="l">Diaper</div><div id="diaper" class="status">—</div></div></div></div>
+<script>
+const token=new URLSearchParams(location.search).get('token');const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function load(){if(!token){state.textContent='Invalid share link.';return}const r=await fetch('/api/shared/snapshot?token='+encodeURIComponent(token));if(!r.ok){state.textContent='This share link is invalid or expired.';return}const x=await r.json();if(!x){state.textContent='No current measurement available.';return}
+state.textContent='Secure shared view • Last updated '+new Date(x.occurred_at).toLocaleString();
+height.textContent=x.baby_height_cm!=null?Number(x.baby_height_cm).toFixed(1)+' cm':'—';weight.textContent=x.baby_weight!=null?Number(x.baby_weight).toFixed(2)+' kg':'—';temp.textContent=x.temperature!=null?Number(x.temperature).toFixed(1)+' °C':'—';rr.textContent=x.respiratory_rate>=0?Number(x.respiratory_rate).toFixed(1)+' bpm':'—';
+const c=!!(x.cry_detected??x.crying);cry.textContent=c?'Baby Cry Detected':'No Cry Detected';cry.className='status '+(c?'danger':'ok');pattern.textContent='Pattern: '+(x.probable_pattern||'—');
+diaper.textContent=x.diaper_status||'—';diaper.className='status '+(x.diaper_status==='Dry'?'ok':x.diaper_status==='Likely Full'?'warn':'');}load();
+</script></body></html>

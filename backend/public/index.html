@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Cradle</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f8fb;color:#172033}
+.header{background:#fff;border-bottom:1px solid #e6eaf0;padding:18px 28px;display:flex;justify-content:space-between;align-items:center}
+.header h1{margin:0;font-size:20px}.connection{font-size:13px;color:#687386}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;margin-right:7px}.dot.on{background:#22c55e}
+.container{max-width:1400px;margin:auto;padding:24px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:18px;box-shadow:0 2px 10px #00000008}.label{font-size:12px;color:#687386;text-transform:uppercase;letter-spacing:.06em;font-weight:700}.value{font-size:29px;font-weight:750;margin-top:8px}.sub{font-size:12px;color:#7a8494;margin-top:5px}
+.status{display:inline-flex;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:700;margin-top:10px}.ok{background:#eaf8ef;color:#16803d}.warn{background:#fff4e8;color:#b45309}.danger{background:#feecec;color:#b91c1c}.neutral{background:#eef2f7;color:#5b6678}
+.wide{grid-column:span 2}.section{font-weight:750;margin-bottom:12px}.chart{height:280px}.alerts{max-height:280px;overflow:auto}.alert{padding:10px 0;border-bottom:1px solid #edf0f4;font-size:13px}.qr{display:flex;gap:16px;align-items:center}.qr img{width:130px;height:130px;border:1px solid #ddd;padding:7px;background:#fff}
+button{border:0;border-radius:9px;padding:9px 13px;background:#172033;color:white;cursor:pointer}.muted{color:#6f7a8b;font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.wide{grid-column:span 2}}@media(max-width:600px){.container{padding:14px}.grid{grid-template-columns:1fr}.wide{grid-column:span 1}}
+</style>
+</head>
+<body>
+<header class="header"><h1>Smart Cradle</h1><div class="connection"><span class="dot" id="dot"></span><span id="connection">Connecting…</span></div></header>
+<main class="container">
+<div class="grid">
+ <div class="card"><div class="label">Height / Length</div><div class="value" id="height">—</div><div class="sub">Growth measurement</div></div>
+ <div class="card"><div class="label">Baby Weight</div><div class="value" id="weight">—</div><div class="sub">Latest confirmed reading</div></div>
+ <div class="card"><div class="label">Temperature</div><div class="value" id="temp">—</div><div class="sub">°C</div></div>
+ <div class="card"><div class="label">Respiratory Rate</div><div class="value" id="rr">—</div><div class="sub">breaths / min</div></div>
+ <div class="card"><div class="label">Baby Cry</div><div id="cry" class="status neutral">No data</div><div class="sub" id="pattern">Pattern: —</div></div>
+ <div class="card"><div class="label">Diaper Status</div><div id="diaper" class="status neutral">No data</div><div class="sub" id="diaperReason">Multi-sensor assessment</div></div>
+ <div class="card"><div class="label">Baby Presence</div><div id="presence" class="status neutral">No data</div></div>
+</div>
+<div class="grid">
+ <div class="card wide"><div class="section">Growth & Vital Trends</div><div class="chart"><canvas id="chart"></canvas></div></div>
+ <div class="card"><div class="section">Alerts & Events</div><div class="alerts" id="alerts">No events yet.</div></div>
+ <div class="card wide"><div class="section">Share on Mobile</div><div class="qr"><div id="qrBox"><div class="muted">Generate a temporary secure share QR.</div><button onclick="createShare()">Generate QR</button></div><div><b>Private share</b><p class="muted">The QR contains an expiring access token, not baby data.</p></div></div></div>
+</div>
+</main>
+<script>
+let latest={}, points=[];
+const ctx=document.getElementById('chart').getContext('2d');
+const chart=new Chart(ctx,{type:'line',data:{labels:[],datasets:[
+ {label:'Weight (kg)',data:[],tension:.3,yAxisID:'left'},
+ {label:'Height / Length (cm)',data:[],tension:.3,yAxisID:'right'}
+]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{
+ left:{type:'linear',position:'left'},right:{type:'linear',position:'right',grid:{drawOnChartArea:false}}
+}}});
+
+function rowPayload(row){return row?.payload||row||{}}
+function apply(row){
+ const p=rowPayload(row); latest={...latest,...row,...p};
+ if(p.baby_height_cm!=null){document.getElementById('height').textContent=Number(p.baby_height_cm).toFixed(1)+' cm'}
+ else if(p.baby_height!=null){document.getElementById('height').textContent=Number(p.baby_height).toFixed(1)+' cm'}
+ if(p.baby_weight!=null)document.getElementById('weight').textContent=Number(p.baby_weight).toFixed(2)+' kg';
+ if(p.temperature!=null)document.getElementById('temp').textContent=Number(p.temperature).toFixed(1);
+ if(p.respiratory_rate!=null && Number(p.respiratory_rate)>=0)document.getElementById('rr').textContent=Number(p.respiratory_rate).toFixed(1);
+ const cry=document.getElementById('cry');
+ if(p.cry_detected!=null||p.crying!=null){const on=!!(p.cry_detected??p.crying);cry.textContent=on?'Baby Cry Detected':'No Cry Detected';cry.className='status '+(on?'danger':'ok')}
+ document.getElementById('pattern').textContent='Pattern: '+(p.probable_pattern||'—');
+ const d=document.getElementById('diaper'), status=p.diaper_status||(p.diaper_soiled?'Urine Detected':'Dry');
+ d.textContent=status;d.className='status '+(status==='Dry'?'ok':status==='Likely Full'?'warn':'neutral');
+ document.getElementById('diaperReason').textContent=p.diaper_fusion_reason||'Multi-sensor assessment';
+ if(p.baby_weight!=null||p.baby_height_cm!=null||p.baby_height!=null){
+   const t=new Date(row.occurred_at||Date.now()).toLocaleTimeString();
+   chart.data.labels.push(t);chart.data.datasets[0].data.push(p.baby_weight??null);chart.data.datasets[1].data.push(p.baby_height_cm??p.baby_height??null);
+   if(chart.data.labels.length>60){chart.data.labels.shift();chart.data.datasets.forEach(d=>d.data.shift())} chart.update();
+ }
+}
+function addAlert(row){
+ const p=row.payload||row; const el=document.getElementById('alerts');
+ if(el.textContent==='No events yet.')el.textContent='';
+ const div=document.createElement('div');div.className='alert';
+ div.innerHTML='<b>'+escapeHtml(p.sensor||row.event_type||'Event')+'</b> — '+escapeHtml(p.alert_type||row.event_type||'Update')+'<br><small>'+escapeHtml(row.occurred_at||row.timestamp||'')+'</small>';
+ el.prepend(div);while(el.children.length>20)el.lastChild.remove();
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function load(){
+ try{
+  const [t,a,p]=await Promise.all([fetch('/api/telemetry?limit=60').then(r=>r.json()),fetch('/api/alerts?limit=20').then(r=>r.json()),fetch('/api/presence?limit=1').then(r=>r.json())]);
+  t.slice().reverse().forEach(apply);a.slice().reverse().forEach(addAlert);
+  if(p[0]){const present=!!p[0].baby_present;const e=document.getElementById('presence');e.textContent=present?'Baby Present':'Cradle Empty';e.className='status '+(present?'ok':'neutral')}
+ }catch(e){console.error(e)}
+}
+function connect(){
+ const proto=location.protocol==='https:'?'wss://':'ws://';const ws=new WebSocket(proto+location.host);
+ ws.onopen=()=>{dot.classList.add('on');connection.textContent='Connected'};
+ ws.onclose=()=>{dot.classList.remove('on');connection.textContent='Disconnected';setTimeout(connect,2000)};
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='telemetry')apply(m.data);if(m.type==='alert')addAlert(m.data);if(m.type==='cry_inference'){document.getElementById('pattern').textContent='Pattern: '+(m.data.probable_pattern||'Analysing...')}};
+}
+async function createShare(){
+ const deviceId=latest.device_id||new URLSearchParams(location.search).get('deviceId');
+ if(!deviceId){alert('No device is connected yet.');return}
+ const r=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId,hours:4})});
+ const x=await r.json(); if(!r.ok){alert(x.error||'Share creation failed');return}
+ const box=document.getElementById('qrBox');box.innerHTML='<canvas id="qrCanvas" width="180" height="180"></canvas><br><small>Expires '+new Date(x.expiresAt).toLocaleString()+'</small>';
+ QRCode.toCanvas(document.getElementById('qrCanvas'), x.url, {width:180,margin:2}, err=>{if(err)console.error(err)});
+}
+load();connect();
+</script>
+</body></html>
