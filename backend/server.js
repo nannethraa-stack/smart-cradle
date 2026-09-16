@@ -88,6 +88,111 @@ app.get('/admin/cry-inferences', (req, res) => {
   res.json(db.getCryInferences(req.query.deviceId, limitOf(req.query.limit, 100)));
 });
 
+app.get('/admin/cry-reviews', (req, res) => {
+  if (!req.query.deviceId) {
+    return res.status(400).json({ error: 'deviceId is required' });
+  }
+
+  res.json(
+    db.getCryReviews(
+      req.query.deviceId,
+      limitOf(req.query.limit, 100)
+    )
+  );
+});
+
+app.post('/admin/cry-reviews', express.json({ limit: '1mb' }), (req, res) => {
+  const body = req.body || {};
+
+  if (!body.audio_event_id) {
+    return res.status(400).json({ error: 'audio_event_id is required' });
+  }
+
+  if (!body.device_id) {
+    return res.status(400).json({ error: 'device_id is required' });
+  }
+
+  const allowedDecisions = [
+    'CONFIRM',
+    'CORRECT',
+    'UNABLE_TO_DETERMINE'
+  ];
+
+  const allowedPatterns = [
+    'HUNGER',
+    'PAIN',
+    'DISCOMFORT',
+    'TIRED',
+    'BURPING',
+    'OTHER'
+  ];
+
+  const allowedTrainingStatuses = [
+    'CANDIDATE',
+    'APPROVED',
+    'EXCLUDED'
+  ];
+
+  const allowedReviewStatuses = [
+    'NOT_REVIEWED',
+    'REVIEWED'
+  ];
+
+  const reviewStatus = body.review_status || 'REVIEWED';
+  const trainingStatus = body.training_status || 'CANDIDATE';
+
+  if (!allowedReviewStatuses.includes(reviewStatus)) {
+    return res.status(400).json({
+      error: 'Invalid review_status'
+    });
+  }
+
+  if (!allowedTrainingStatuses.includes(trainingStatus)) {
+    return res.status(400).json({
+      error: 'Invalid training_status'
+    });
+  }
+
+  if (body.human_decision &&
+      !allowedDecisions.includes(body.human_decision)) {
+    return res.status(400).json({
+      error: 'Invalid human_decision'
+    });
+  }
+
+  if (body.human_pattern &&
+      !allowedPatterns.includes(body.human_pattern)) {
+    return res.status(400).json({
+      error: 'Invalid human_pattern'
+    });
+  }
+
+  if (body.human_decision === 'CORRECT' && !body.human_pattern) {
+    return res.status(400).json({
+      error: 'human_pattern is required when human_decision is CORRECT'
+    });
+  }
+
+  const result = db.insertCryReview({
+    audio_event_id: body.audio_event_id,
+    device_id: body.device_id,
+    review_status: reviewStatus,
+    human_decision: body.human_decision || null,
+    human_pattern: body.human_pattern || null,
+    evidence_note: body.evidence_note || null,
+    training_status: trainingStatus,
+    reviewer: body.reviewer || null,
+    reviewed_at: body.reviewed_at || new Date().toISOString()
+  });
+
+  const review = db.getCryReviews(body.device_id, 1);
+
+  res.status(201).json({
+    id: result.lastInsertRowid,
+    review: review[0] || null
+  });
+});
+
 app.get('/admin/stats', (req, res) => {
   const summary = monitoring.getHealthSummary();
   const memUsage = process.memoryUsage();

@@ -10,7 +10,7 @@ let broadcastFn = null;
 const diaperState = new Map();
 
 function setBroadcast(fn) { broadcastFn = fn; }
-function broadcast(data) { if (broadcastFn) broadcast(data); }
+function broadcast(data) { if (broadcastFn) broadcastFn(data); }
 
 function inferDiaperStatus(deviceId, payload) {
   const ammonia = Number.isFinite(payload.ammonia_ppm) && payload.ammonia_ppm >= 0
@@ -76,7 +76,14 @@ function start() {
 
   client.on('message', (topic, message) => {
     try {
-      const data = JSON.parse(message.toString());
+      const rawMessage = message.toString();
+      let data;
+      try {
+        data = JSON.parse(rawMessage);
+      } catch (parseError) {
+        console.warn('[MQTT] Ignoring non-JSON message on ' + topic);
+        return;
+      }
       const parts = topic.split('/');
       const deviceId = parts[1];
       const channel = parts[2];
@@ -177,7 +184,7 @@ function start() {
         return;
       }
 
-      console.log('Unknown channel:', channel);
+      return;
     } catch (err) {
       console.error('Failed to process message:', err.message);
     }

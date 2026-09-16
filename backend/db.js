@@ -128,6 +128,29 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS cry_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audio_event_id TEXT NOT NULL,
+    device_id TEXT,
+    review_status TEXT NOT NULL DEFAULT 'NOT_REVIEWED',
+    human_decision TEXT,
+    human_pattern TEXT,
+    evidence_note TEXT,
+    training_status TEXT NOT NULL DEFAULT 'CANDIDATE',
+    reviewer TEXT,
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cry_reviews_audio_event
+    ON cry_reviews(audio_event_id);
+
+  CREATE INDEX IF NOT EXISTS idx_cry_reviews_device_status
+    ON cry_reviews(device_id, review_status);
+
+  CREATE INDEX IF NOT EXISTS idx_cry_reviews_training_status
+    ON cry_reviews(training_status);
+
   CREATE TABLE IF NOT EXISTS system_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT,
@@ -352,6 +375,71 @@ function getCryInferences(deviceId, limit = 100) {
   `).all(deviceId, limit);
 }
 
+function insertCryReview(review) {
+  return db.prepare(`
+    INSERT INTO cry_reviews
+    (audio_event_id, device_id, review_status, human_decision,
+     human_pattern, evidence_note, training_status, reviewer, reviewed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    review.audio_event_id,
+    review.device_id ?? null,
+    review.review_status ?? 'NOT_REVIEWED',
+    review.human_decision ?? null,
+    review.human_pattern ?? null,
+    review.evidence_note ?? null,
+    review.training_status ?? 'CANDIDATE',
+    review.reviewer ?? null,
+    review.reviewed_at ?? null
+  );
+}
+
+function getCryReviews(deviceId, limit = 100) {
+  return db.prepare(`
+    SELECT
+      r.*,
+      a.occurred_at AS audio_occurred_at,
+      a.sample_rate,
+      a.channels,
+      a.sample_count,
+      a.format,
+      (
+        SELECT ci.model_version
+        FROM cry_inferences ci
+        WHERE ci.audio_event_id = r.audio_event_id
+        ORDER BY ci.occurred_at DESC, ci.id DESC
+        LIMIT 1
+      ) AS ai_model_version,
+      (
+        SELECT ci.probable_pattern
+        FROM cry_inferences ci
+        WHERE ci.audio_event_id = r.audio_event_id
+        ORDER BY ci.occurred_at DESC, ci.id DESC
+        LIMIT 1
+      ) AS ai_probable_pattern,
+      (
+        SELECT ci.probability
+        FROM cry_inferences ci
+        WHERE ci.audio_event_id = r.audio_event_id
+        ORDER BY ci.occurred_at DESC, ci.id DESC
+        LIMIT 1
+      ) AS ai_probability,
+      (
+        SELECT ci.status
+        FROM cry_inferences ci
+        WHERE ci.audio_event_id = r.audio_event_id
+        ORDER BY ci.occurred_at DESC, ci.id DESC
+        LIMIT 1
+      ) AS ai_status
+    FROM cry_reviews r
+    LEFT JOIN audio_events a
+      ON a.event_id = r.audio_event_id
+    WHERE r.device_id = ?
+    ORDER BY r.created_at DESC
+    LIMIT ?
+  `).all(deviceId, limit);
+}
+
 function updateLatestCryPattern(deviceId, probablePattern, modelVersion, probability) {
   return db.prepare(`
     UPDATE telemetry SET probable_pattern = ?, cry_model_version = ?, cry_probability = ?
@@ -481,6 +569,7 @@ module.exports = {
   insertSensorSamples,
   insertAudioEvent,
   insertCryInference,
+  insertCryReview,
   updateLatestCryPattern,
   insertSystemEvent,
   getLatestTelemetry,
@@ -494,6 +583,7 @@ module.exports = {
   getAudioEvents,
   getAudioEventById,
   getCryInferences,
+  getCryReviews,
   createShareToken,
   getShareToken,
   revokeShareToken,
